@@ -185,6 +185,7 @@ static int dma_hw_params(struct snd_pcm_substream *substream,
 				prtd->params->channel, &req, rtd->cpu_dai->dev,
 				prtd->params->ch_name);
 		if (!prtd->params->ch) {
+			prtd->params = NULL;
 			pr_err("Failed to allocate DMA channel\n");
 			return -ENXIO;
 		}
