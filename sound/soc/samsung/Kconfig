@@ -72,9 +72,9 @@ config SND_SOC_SAMSUNG_SMDK_WM8994
 
 config SND_SOC_SAMSUNG_HDMI_AUDIO
 	tristate "SoC I2S Audio support for HDMI Audio"
-	depends on SND_SOC_SAMSUNG && SOC_EXYNOS5250
+	depends on SND_SOC_SAMSUNG && (SOC_EXYNOS5250 || SOC_EXYNOS5410)
 	help
-		Say Y if you have a Samsung Exynos5250 (ARM) chipset with
+		Say Y if you have a Samsung Exynos (ARM) chipset with
 		a HDMI port and want to connect HDMI devices (e.g. TVs
 		which have audio output). This option enables the support
 		for routing audio through the HDMI port.
@@ -244,7 +244,7 @@ config SND_SOC_SMDK_I2S_STUB
 
 config SND_SOC_EXYNOS_MAX98095
        tristate "SoC I2S Audio support for MAX98095/90/89 on EXYNOS5"
-       depends on SND_SOC_SAMSUNG && SOC_EXYNOS5250
+       depends on SND_SOC_SAMSUNG && (SOC_EXYNOS5250 || SOC_EXYNOS5410)
        select SND_SOC_MAX98095
        select SND_SOC_MAX98090
        select SND_SOC_MAX98088
