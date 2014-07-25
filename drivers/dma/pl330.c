@@ -2765,7 +2765,8 @@ pl330_prep_dma_memcpy(struct dma_chan *chan, dma_addr_t dst,
 	burst = pi->pcfg.data_bus_width / 8;
 
 	while (burst > 1) {
-		if (!(len % burst) && !(dst % burst) && !(src % burst))
+		if (!(len % burst) && !(((u32) dst) % burst)
+			&& !(((u32) src) % burst))
 			break;
 		burst /= 2;
 	}
