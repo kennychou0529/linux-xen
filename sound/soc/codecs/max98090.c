@@ -2302,6 +2302,8 @@ static int max98090_remove(struct snd_soc_codec *codec)
 
 	cancel_delayed_work_sync(&max98090->jack_work);
 
+	free_irq(max98090->irq, max98090->codec);
+
 	return 0;
 }
 
