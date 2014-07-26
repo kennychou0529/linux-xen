@@ -52,6 +52,8 @@ struct i2s_dai {
 	void __iomem	*addr;
 	/* Physical base address of SFRs */
 	u32	base;
+	/* Size of the resource */
+	u32	res_size;
 	/* Rate of RCLK source clock */
 	unsigned long rclk_srcrate;
 	/* Frame Clock */
@@ -65,6 +67,8 @@ struct i2s_dai {
 	struct clk *clk;
 	/* Clock for generating I2S signals */
 	struct clk *op_clk;
+	/* Added this field for the samsung_i2s_remove function */
+	enum samsung_dai_type dai_type;
 	/* Pointer to the Primary_Fifo if this is Sec_Fifo, NULL otherwise */
 	struct i2s_dai *pri_dai;
 	/* Pointer to the Secondary_Fifo if it has one, NULL otherwise */
@@ -84,15 +88,22 @@ struct i2s_dai {
 	u32	suspend_i2scon;
 	u32	suspend_i2spsr;
 	unsigned long gpios[7];	/* i2s gpio line numbers */
+
+	struct list_head node; /* For the list of child devices */
 };
 
 /* Lock for cross i/f checks */
 static DEFINE_SPINLOCK(lock);
 
+/* List of all children devices, and the corresponding lock to access it */
+static LIST_HEAD(childdev_list);
+static DEFINE_MUTEX(childdev_lock);
+
+
 /* If this is the 'overlay' stereo DAI */
 static inline bool is_secondary(struct i2s_dai *i2s)
 {
-	return i2s->pri_dai ? true : false;
+	return (i2s->dai_type == TYPE_SEC);
 }
 
 /* If operating in SoC-Slave mode */
@@ -1015,7 +1026,9 @@ static int samsung_i2s_dai_probe(struct snd_soc_dai *dai)
 	struct i2s_dai *i2s = to_info(dai);
 	struct i2s_dai *other = i2s->pri_dai ? : i2s->sec_dai;
 
-	if (other && other->clk) /* If this is probe on secondary */
+	if (is_secondary(i2s)) { /* If this is probe on secondary */
+		samsung_asoc_init_dma_data(dai, &i2s->dma_playback,
+					   NULL);
 		goto probe_exit;
 
 	i2s->addr = ioremap(i2s->base, 0x100);
@@ -1085,6 +1098,25 @@ static int samsung_i2s_dai_remove(struct snd_soc_dai *dai)
 	return 0;
 }
 
+static void samsung_i2s_add_child_device(struct i2s_dai *i2s)
+{
+	mutex_lock(&childdev_lock);
+	list_add_tail(&i2s->node, &childdev_list);
+	mutex_unlock(&childdev_lock);
+}
+
+static void samsung_i2s_delete_child_devices(void)
+{
+	struct i2s_dai *i2s, *i2s_next;
+
+	mutex_lock(&childdev_lock);
+	list_for_each_entry_safe(i2s, i2s_next, &childdev_list, node) {
+		platform_device_unregister(i2s->pdev);
+		kfree(i2s);
+	}
+	mutex_unlock(&childdev_lock);
+}
+
 static const struct snd_soc_dai_ops samsung_i2s_dai_ops = {
 	.trigger = i2s_trigger,
 	.hw_params = i2s_hw_params,
@@ -1111,7 +1143,7 @@ static struct i2s_dai *i2s_alloc_dai(struct platform_device *pdev, bool sec)
 	struct i2s_dai *i2s;
 	int ret;
 
-	i2s = devm_kzalloc(&pdev->dev, sizeof(struct i2s_dai), GFP_KERNEL);
+	i2s = kzalloc(sizeof(struct i2s_dai), GFP_KERNEL);
 	if (i2s == NULL)
 		return NULL;
 
@@ -1130,12 +1162,14 @@ static struct i2s_dai *i2s_alloc_dai(struct platform_device *pdev, bool sec)
 	i2s->i2s_dai_drv.playback.formats = SAMSUNG_I2S_FMTS;
 
 	if (!sec) {
+		i2s->dai_type = TYPE_PRI;
 		i2s->i2s_dai_drv.capture.channels_min = 1;
 		i2s->i2s_dai_drv.capture.channels_max = 2;
 		i2s->i2s_dai_drv.capture.rates = SAMSUNG_I2S_RATES;
 		i2s->i2s_dai_drv.capture.formats = SAMSUNG_I2S_FMTS;
 		dev_set_drvdata(&i2s->pdev->dev, i2s);
 	} else {	/* Create a new platform_device for Secondary */
+		i2s->dai_type = TYPE_SEC;
 		i2s->pdev = platform_device_alloc("samsung-i2s-sec", -1);
 		if (!i2s->pdev)
 			return NULL;
@@ -1144,8 +1178,11 @@ static struct i2s_dai *i2s_alloc_dai(struct platform_device *pdev, bool sec)
 
 		platform_set_drvdata(i2s->pdev, i2s);
 		ret = platform_device_add(i2s->pdev);
-		if (ret < 0)
+		if (ret < 0) {
+			platform_device_put(i2s->pdev);
 			return NULL;
+		}
+		samsung_i2s_add_child_device(i2s);
 	}
 
 	return i2s;
@@ -1193,7 +1230,7 @@ static int samsung_i2s_probe(struct platform_device *pdev)
 	struct s3c_audio_pdata *i2s_pdata = pdev->dev.platform_data;
 	struct samsung_i2s *i2s_cfg = NULL;
 	struct resource *res;
-	u32 regs_base, quirks = 0, idma_addr = 0;
+	u32 regs_base, res_size, quirks = 0, idma_addr = 0;
 	struct device_node *np = pdev->dev.of_node;
 	const struct samsung_i2s_dai_data *i2s_dai_data;
 	int ret = 0;
@@ -1276,6 +1313,7 @@ static int samsung_i2s_probe(struct platform_device *pdev)
 		return -EBUSY;
 	}
 	regs_base = res->start;
+	res_size = resource_size(res);
 
 	pri_dai->dma_playback.dma_addr = regs_base + I2STXD;
 	pri_dai->dma_capture.dma_addr = regs_base + I2SRXD;
@@ -1288,6 +1326,7 @@ static int samsung_i2s_probe(struct platform_device *pdev)
 	pri_dai->dma_playback.dma_size = 4;
 	pri_dai->dma_capture.dma_size = 4;
 	pri_dai->base = regs_base;
+	pri_dai->res_size = res_size;
 	pri_dai->quirks = quirks;
 
 	if (quirks & QUIRK_PRI_6CHAN)
@@ -1313,6 +1352,7 @@ static int samsung_i2s_probe(struct platform_device *pdev)
 
 		sec_dai->dma_playback.dma_size = 4;
 		sec_dai->base = regs_base;
+		sec_dai->res_size = res_size;
 		sec_dai->quirks = quirks;
 		sec_dai->idma_playback.dma_addr = idma_addr;
 		sec_dai->pri_dai = pri_dai;
@@ -1343,7 +1383,6 @@ err:
 static int samsung_i2s_remove(struct platform_device *pdev)
 {
 	struct i2s_dai *i2s, *other;
-	struct resource *res;
 
 	i2s = dev_get_drvdata(&pdev->dev);
 	other = i2s->pri_dai ? : i2s->sec_dai;
@@ -1352,16 +1391,26 @@ static int samsung_i2s_remove(struct platform_device *pdev)
 		other->pri_dai = NULL;
 		other->sec_dai = NULL;
 	} else {
+		release_mem_region(i2s->base, i2s->res_size);
+	}
+
+	if (i2s->dai_type == TYPE_PRI) {
 		pm_runtime_disable(&pdev->dev);
-		res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-		if (res)
-			release_mem_region(res->start, resource_size(res));
 	}
 
 	i2s->pri_dai = NULL;
 	i2s->sec_dai = NULL;
 
 	samsung_asoc_dma_platform_unregister(&pdev->dev);
+	snd_soc_unregister_component(&pdev->dev);
+
+	if (i2s->dai_type == TYPE_SEC) {
+		platform_set_drvdata(pdev, NULL);
+	}
+
+	if (i2s->dai_type == TYPE_PRI) {
+		kfree(i2s);
+	}
 
 	return 0;
 }
@@ -1436,7 +1485,15 @@ static struct platform_driver samsung_i2s_driver = {
 	},
 };
 
-module_platform_driver(samsung_i2s_driver);
+
+static void samsung_i2s_driver_unregister(struct platform_driver *pdrv)
+{
+	platform_driver_unregister(pdrv);
+	samsung_i2s_delete_child_devices();
+}
+
+module_driver(samsung_i2s_driver, platform_driver_register,
+		samsung_i2s_driver_unregister);
 
 /* Module information */
 MODULE_AUTHOR("Jaswinder Singh, <jassisinghbrar@gmail.com>");
