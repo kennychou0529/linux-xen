@@ -79,7 +79,25 @@
 		#clock-cells = <1>;
 	};
 
-	timer@101C0000 {
+	sysram@02020000 {
+		compatible = "mmio-sram";
+		reg = <0x02020000 0x54000>;
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges = <0 0x02020000 0x54000>;
+
+		smp-sysram@0 {
+			compatible = "samsung,exynos4210-sysram";
+			reg = <0x0 0x1000>;
+		};
+
+		smp-sysram@53000 {
+			compatible = "samsung,exynos4210-sysram-ns";
+			reg = <0x53000 0x1000>;
+		};
+	};
+
+	mct-timer@101C0000 {
 		compatible = "samsung,exynos4210-mct";
 		reg = <0x101C0000 0xB00>;
 		interrupt-parent = <&interrupt_map>;
@@ -107,6 +125,16 @@
 					<11 &gic 0 131 0>;
 		};
 	};
+
+       timer {
+                compatible = "arm,cortex-a15-timer",
+                             "arm,armv7-timer";
+                interrupts = <1 13 0xf08>,
+                             <1 14 0xf08>,
+                             <1 11 0xf08>,
+                             <1 10 0xf08>;
+                clock-frequency = <24000000>;
+       };
 
 	gsc_pd: power-domain@10044000 {
 		compatible = "samsung,exynos4210-pd";
