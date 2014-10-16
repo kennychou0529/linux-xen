@@ -1748,8 +1748,17 @@ EXPORT_SYMBOL(printk_emit);
  *
  * See the vsnprintf() documentation for format string extensions over C99.
  */
+
+#define XEN_SURI
+#ifdef XEN_SURI
+void xen_raw_console_write(char *buf);
+#endif
+
 asmlinkage int printk(const char *fmt, ...)
 {
+#ifdef XEN_SURI
+	static char buf[512];
+#endif
 	va_list args;
 	int r;
 
@@ -1762,8 +1771,15 @@ asmlinkage int printk(const char *fmt, ...)
 	}
 #endif
 	va_start(args, fmt);
+#ifdef XEN_SURI
+	r = vsnprintf(buf, sizeof(buf), fmt, args);
+#else
 	r = vprintk_emit(0, -1, NULL, 0, fmt, args);
+#endif
 	va_end(args);
+#ifdef XEN_SURI
+	xen_raw_console_write(buf);
+#endif
 
 	return r;
 }

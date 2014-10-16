@@ -269,7 +269,14 @@ static void uart_clock_init(void)
 {
 	exynos_set_rate("dout_uart0", 150000000);
 	exynos_set_rate("dout_uart1", 150000000);
+#ifndef CONFIG_XEN
+/*
+  UART2 is used as XEN console. We do not want dom0 poking at it */
+  Note that the ouput gets garbled from this point on if this function *
+  is called
+*/
 	exynos_set_rate("dout_uart2", 150000000);
+#endif
 	exynos_set_rate("dout_uart3", 150000000);
 }
 
