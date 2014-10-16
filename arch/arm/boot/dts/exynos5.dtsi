@@ -108,4 +108,38 @@
 		interrupts = <0 42 0>;
 		status = "disabled";
 	};
+
+        timer {
+                compatible = "arm,cortex-a15-timer",
+                             "arm,armv7-timer";
+                interrupts = <1 13 0xf08>,
+                             <1 14 0xf08>,
+                             <1 11 0xf08>,
+                             <1 10 0xf08>;
+                clock-frequency = <24000000>;
+        };
+
+        sysram@02020000 {
+                compatible = "mmio-sram";
+                reg = <0x02020000 0x54000>;
+                #address-cells = <1>;
+                #size-cells = <1>;
+                ranges = <0 0x02020000 0x54000>;
+
+                smp-sysram@0 {
+                        compatible = "samsung,exynos4210-sysram";
+                        reg = <0x0 0x1000>;
+                };
+
+                smp-sysram@53000 {
+                        compatible = "samsung,exynos4210-sysram-ns";
+                        reg = <0x53000 0x1000>;
+                };
+        };
+
+        pmu_syscon: syscon@10040000 {
+                compatible = "samsung,exynos5410-pmu", "syscon";
+                reg = <0x10040000 0x5000>;
+        };
+
 };
